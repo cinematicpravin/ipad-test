@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NSE Screener</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --muted:#666; --card:#f3f4f6; --line:#ddd; --accent:#2962ff; --ok:#089981; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131722; --fg:#e6e8ec; --muted:#9aa0ab; --card:#1e222d; --line:#2e3340; --accent:#5b8cff; --ok:#26a69a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; padding-top:calc(16px + env(safe-area-inset-top, 0px)); padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px)); background:var(--bg); color:var(--fg);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .chip { background:var(--card); border-radius:8px; padding:8px 12px; font-size:14px; }
+  .chip b { color:var(--fg); }
+  .chip span { color:var(--muted); }
+  button { background:var(--accent); color:#fff; border:0; border-radius:10px;
+           padding:12px 22px; font-size:16px; font-weight:600; }
+  button:disabled { opacity:.5; }
+  input { background:var(--card); color:var(--fg); border:1px solid var(--line);
+          border-radius:8px; padding:8px; font-size:14px; width:100%; }
+  details { margin:12px 0; color:var(--muted); font-size:13px; }
+  #status { margin:12px 0; font-size:14px; color:var(--muted); }
+  #status.err { color:#e5484d; }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; white-space:nowrap; }
+  th, td { padding:10px 12px; text-align:right; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; position:sticky; left:0; background:var(--bg); }
+  th { background:var(--card); cursor:pointer; user-select:none; position:sticky; top:0; }
+  td.pos { color:var(--ok); }
+</style>
+</head>
+<body>
+<h1>NSE Screener</h1>
+
+<div class="chips">
+  <div class="chip"><span>Price &gt;</span> <b>30 INR</b></div>
+  <div class="chip"><span>SMA 10 &gt;</span> <b>SMA 50</b></div>
+  <div class="chip"><span>Price &gt;</span> <b>SMA 20</b></div>
+  <div class="chip"><span>Mkt cap &gt;</span> <b>5B INR</b></div>
+  <div class="chip"><span>Price × vol &gt;</span> <b>50M INR</b></div>
+  <div class="chip"><span>Price above 52W Low by</span> <b>40%+</b></div>
+  <div class="chip"><b>NSE</b></div>
+</div>
+
+<button id="run">Run screener</button>
+
+
+
+<div id="status"></div>
+<div class="wrap" id="tableWrap" hidden>
+  <table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="body"></tbody>
+  </table>
+</div>
+
+<script>
+const URL_ = "https://scanner.tradingview.com/india/scan";
+const COLS = ["name","close","SMA10","SMA20","SMA50","volume","market_cap_basic","price_52_week_low"];
+
+const payload = {
+  filter: [
+    { left:"exchange", operation:"equal", right:"NSE" },
+    { left:"type", operation:"equal", right:"stock" },
+    { left:"close", operation:"greater", right:30 },
+    { left:"SMA10", operation:"greater", right:"SMA50" },
+    { left:"close", operation:"greater", right:"SMA20" },
+    { left:"market_cap_basic", operation:"greater", right:5e9 }
+  ],
+  options: { lang:"en" },
+  markets: ["india"],
+  symbols: { query:{ types:[] }, tickers:[] },
+  columns: COLS,
+  sort: { sortBy:"market_cap_basic", sortOrder:"desc" },
+  range: [0, 5000]
+};
+
+const HEADERS = [
+  ["sym","Symbol"],["price","Price"],["sma10","SMA10"],["sma20","SMA20"],["sma50","SMA50"],
+  ["low","52W Low"],["pct","% > 52W Low"],["turn","Turnover (M)"],["mcap","Mkt Cap (B)"]
+];
+
+let rows = [], sortKey = "pct", sortDir = -1;
+const $ = id => document.getElementById(id);
+const fmt = (n, d=2) => Number(n).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+
+function setStatus(msg, err=false) { $("status").textContent = msg; $("status").className = err ? "err" : ""; }
+
+function render() {
+  $("head").innerHTML = HEADERS.map(([k,l]) =>
+    `<th data-k="${k}">${l}${k===sortKey ? (sortDir>0?" ▲":" ▼") : ""}</th>`).join("");
+  const sorted = [...rows].sort((a,b) =>
+    (typeof a[sortKey]==="string" ? a[sortKey].localeCompare(b[sortKey]) : a[sortKey]-b[sortKey]) * sortDir);
+  $("body").innerHTML = sorted.map(r => `<tr>
+    <td>${r.sym}</td><td>${fmt(r.price)}</td><td>${fmt(r.sma10)}</td><td>${fmt(r.sma20)}</td>
+    <td>${fmt(r.sma50)}</td><td>${fmt(r.low)}</td><td class="pos">${fmt(r.pct,1)}%</td>
+    <td>${fmt(r.turn,1)}</td><td>${fmt(r.mcap,1)}</td></tr>`).join("");
+  document.querySelectorAll("th").forEach(th => th.onclick = () => {
+    const k = th.dataset.k;
+    if (k === sortKey) sortDir *= -1; else { sortKey = k; sortDir = k==="sym" ? 1 : -1; }
+    render();
+  });
+}
+
+$("run").onclick = async () => {
+  const btn = $("run");
+  btn.disabled = true;
+  $("tableWrap").hidden = true;
+  setStatus("Fetching from TradingView…");
+  try {
+    const res = await fetch(URL_, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const json = await res.json();
+
+    rows = (json.data || []).map(x => {
+      const [name, close, s10, s20, s50, vol, mcap, low] = x.d;
+      return { sym:name, price:close, sma10:s10, sma20:s20, sma50:s50,
+               low, pct:(close/low-1)*100, turn:close*vol/1e6, mcap:mcap/1e9 };
+    }).filter(r => r.low > 0 && r.turn > 50 && r.pct >= 40);
+
+    setStatus(`${rows.length} stocks matched (of ${json.totalCount} after server filters)`);
+    $("tableWrap").hidden = false;
+    render();
+  } catch (e) {
+    setStatus("Could not reach TradingView (" + e.message + "). Published pages can't call outside sites, so live data works only when this file is opened from your own hosting.", true);
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
